@@ -136,7 +136,6 @@ func (r *runner) processQueries(enums string) error {
 	if len(errs) > 0 {
 		return errorSlice(errs)
 	}
-
 	return nil
 }
 
@@ -364,7 +363,7 @@ func (r *runner) tidyDir() error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("rmrfing %q: %w", r.genPath, err)
 	}
-`
+
 	cmd = exec.Command("mkdir", r.genPath)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("making dir %q: %w", r.genPath, err)
