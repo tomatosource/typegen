@@ -8,8 +8,6 @@
 
 ## prereqs
 
-[xo](https://github.com/xo/xo)
-
 ```
 go install github.com/xo/xo@latest
 ```
