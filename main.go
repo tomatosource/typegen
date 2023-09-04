@@ -23,10 +23,6 @@ import (
 	"golang.org/x/tools/imports"
 )
 
-// TODO
-// update generated type names in other pkg files
-// make less dogshit slow
-
 type errorSlice []error
 
 type runner struct {
@@ -140,6 +136,7 @@ func (r *runner) processQueries(enums string) error {
 	if len(errs) > 0 {
 		return errorSlice(errs)
 	}
+
 	return nil
 }
 
@@ -263,7 +260,7 @@ func (r *runner) replaceAst(
 								oldTypeName := ident.Name
 								ident.Name = queryName
 
-								// TODO var type
+								// todo clean up abomination
 								// todo go through function statements
 								for _, stmt := range parentFunc.Body.List {
 									if declStmt, ok := stmt.(*ast.DeclStmt); ok {
@@ -284,8 +281,6 @@ func (r *runner) replaceAst(
 										}
 									}
 								}
-								// if type param
-								// get ident and replace like above
 							}
 						}
 					}
@@ -369,7 +364,7 @@ func (r *runner) tidyDir() error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("rmrfing %q: %w", r.genPath, err)
 	}
-
+`
 	cmd = exec.Command("mkdir", r.genPath)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("making dir %q: %w", r.genPath, err)
