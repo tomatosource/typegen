@@ -6,6 +6,14 @@
 - only gen types from Get/Select query funcs
 - `typegen-ignore` in query to have it ignored
 
+## prereqs
+
+[xo](https://github.com/xo/xo)
+
+```
+go install github.com/xo/xo@latest
+```
+
 ## installation
 
 ```
