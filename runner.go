@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -10,11 +11,13 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/tools/imports"
 )
 
 type runner struct {
-	dbConn           string
+	dbConnAddr       string
+	dbConn           *pgx.Conn
 	rootPath         string
 	genPath          string
 	funcNames        map[string]bool
@@ -23,7 +26,13 @@ type runner struct {
 
 func (r *runner) init() error {
 	// TODO arg
-	r.dbConn = "postgres://postgres:safesafe@127.0.0.1:6000/svc_core_dev?sslmode=disable"
+	r.dbConnAddr = "postgres://postgres:safesafe@127.0.0.1:6000/svc_core_dev?sslmode=disable"
+
+	conn, err := pgx.Connect(context.Background(), r.dbConnAddr)
+	if err != nil {
+		return fmt.Errorf("opening db conn: %w", err)
+	}
+	r.dbConn = conn
 
 	r.rootPath = "./"
 	r.genPath = r.rootPath + "models"
@@ -70,6 +79,7 @@ func (r *runner) init() error {
 func (r *runner) run() error {
 	defer func() {
 		exec.Command("rm", "-rf", r.genPath).Run()
+		r.dbConn.Close(context.Background())
 	}()
 
 	enums, err := r.getEnumString()

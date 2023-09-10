@@ -10,7 +10,6 @@
 
 ```
 brew install pgformatter
-go install github.com/xo/xo@latest
 ```
 
 ## installation

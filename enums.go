@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"html/template"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
 )
 
 const query = `
@@ -29,7 +27,7 @@ const query = `
         e.enumsortorder;
 `
 
-const templateStr = `
+const enumTmplStr = `
 // {{.GoName}} is the '{{.DBName}}' enum type 
 type {{.GoName}} uint16
 
@@ -50,7 +48,7 @@ func ({{.ReceiverName}} {{.GoName}}) String() string {
 
 // MarshalText marshals [{{.GoName}}] into text.
 func ({{.ReceiverName}} {{.GoName}}) MarshalText() ([]byte, error) {
-	return []byte(b.String()), nil
+	return []byte({{.ReceiverName}}.String()), nil
 }
 
 // UnmarshalText unmarshals [{{.GoName}}] from text.
@@ -115,13 +113,13 @@ func (err ErrInvalid{{.GoName}}) Error() string {
 }
 `
 
-var tmpl = template.Must(
+var enumTmpl = template.Must(
 	template.
 		New("enum").
 		Funcs(template.FuncMap{
 			"addOne": func(i int) int { return i + 1 },
 		}).
-		Parse(templateStr))
+		Parse(enumTmplStr))
 
 type enumValue struct {
 	DBName string
@@ -136,14 +134,7 @@ type Enum struct {
 }
 
 func (r *runner) getEnumString() (string, error) {
-	conn, err := pgx.Connect(context.Background(), r.dbConn)
-	if err != nil {
-		return "", fmt.Errorf("opening db conn: %w", err)
-	}
-	defer conn.Close(context.Background())
-
-	rows, err := conn.Query(context.Background(), `
-  `)
+	rows, err := r.dbConn.Query(context.Background(), query)
 	if err != nil {
 		return "", fmt.Errorf("querying for enums: %w", err)
 	}
@@ -230,6 +221,6 @@ func snakeCaseToPascalCase(input string) string {
 
 func renderEnumTemplate(e *Enum) string {
 	var buf bytes.Buffer
-	tmpl.Execute(&buf, e)
+	enumTmpl.Execute(&buf, e)
 	return buf.String()
 }

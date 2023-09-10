@@ -3,13 +3,14 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"go/ast"
 	"go/format"
-	"go/parser"
 	"go/printer"
 	"go/token"
 	"hash/fnv"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"os"
@@ -20,6 +21,21 @@ import (
 
 	"github.com/brianvoe/gofakeit/v6"
 )
+
+const typeTmplStr = `
+type {{.TypeName}} struct { {{range .Fields}}
+  {{.Name}} {{.Type}} ` + "`" + `db:"{{.Tag}}"` + "`" + `{{end}}
+}
+`
+
+var typeTmpl = template.Must(
+	template.New("type").Parse(typeTmplStr),
+)
+
+type FieldType struct {
+	Field string `db:"field"`
+	Type  string `db:"type"`
+}
 
 func (r *runner) processFile(
 	filename string,
@@ -92,11 +108,13 @@ func (r *runner) replaceAst(
 							}
 							litArg.Value = formattedArgValue
 
+							// TODO i think i need this off and just always regen files
 							// early exit
-							if litArg.Value == formattedArgValue {
-								return true
-							}
+							// if litArg.Value == formattedArgValue {
+							// 	return true
+							// }
 
+							// TODO per above TODO need different conditions here - or maybe set instead of retur true up there
 							// query has changed so will need to rewrite file for sure
 							write = true
 
@@ -105,7 +123,9 @@ func (r *runner) replaceAst(
 									return true
 								}
 
-								queryName, typeStr, err := r.genQueryType(formattedQuery)
+								// TODO goroutine these
+								queryName := nameQuery(query)
+								typeStr, err := r.genQueryType(formattedQuery, queryName)
 								if err != nil {
 									// TODO format query with line numbers/filename
 									errs <- fmt.Errorf(
@@ -238,82 +258,103 @@ func readLine(filename string, lineNo int) (string, error) {
 	return "", io.EOF
 }
 
-func (r *runner) genQueryType(query string) (string, string, error) {
-	queryName := nameQuery(query)
-
+func (r *runner) genQueryType(query, queryName string) (string, error) {
 	q := query
 	q = strings.ReplaceAll(q, "\n", " ")
 	q = strings.ReplaceAll(q, "\t", " ")
-	q = regexp.MustCompile(`\$[0-9]+`).ReplaceAllString(q, "%%x int%%")
+	q = strings.TrimSpace(q)
+	q = regexp.MustCompile(`\$[0-9]+`).ReplaceAllString(q, "null")
+	q = strings.TrimSuffix(q, ";")
 
-	cmd := exec.Command(
-		"xo",
-		"query",
-		r.dbConn,
-		"--go-pkg=dev",
-		"--go-uuid=github.com/google/uuid",
-		"--schema=public",
-		"--go-field-tag=db:\"{{ .SQLName }}\"",
-		fmt.Sprintf("--type=%s", queryName),
-		fmt.Sprintf("--query=%s", q),
-	)
-
-	var stdErr bytes.Buffer
-	cmd.Stderr = &stdErr
-
-	if err := cmd.Run(); err != nil {
-		return "", "", fmt.Errorf("running xo:\n%s\nerr: %w", stdErr.String(), err)
+	if _, err := r.dbConn.Exec(
+		context.Background(),
+		fmt.Sprintf(`create or replace view %s as %s `, queryName, q),
+	); err != nil {
+		return "", fmt.Errorf("creating tmp view: %w", err)
 	}
 
-	fileName := fmt.Sprintf("./models/%s.xo.go", strings.ToLower(queryName))
-	fset := token.NewFileSet()
-	parserMode := parser.ParseComments | parser.AllErrors
-
-	astFile, err := parser.ParseFile(
-		fset,
-		fileName,
-		nil,
-		parserMode,
+	rows, err := r.dbConn.Query(
+		context.Background(),
+		fmt.Sprintf(`
+      select 
+        column_name as field,
+        udt_name as type
+      from 
+        information_schema.columns 
+      where 
+        table_name = '%s'
+    `, strings.ToLower(queryName),
+		),
 	)
 	if err != nil {
-		return "", "", fmt.Errorf("parsing: %w", err)
+		return "", fmt.Errorf("describing tmp view: %w", err)
+	}
+	defer rows.Close()
+
+	var fts []FieldType
+	for rows.Next() {
+		var ft FieldType
+		if err := rows.Scan(&ft.Field, &ft.Type); err != nil {
+			return "", fmt.Errorf("scanning tmp view type row: %w", err)
+		}
+		fts = append(fts, ft)
 	}
 
-	var queryTypeStr string
-	ast.Inspect(astFile, func(n ast.Node) bool {
-		switch t := n.(type) {
-		case *ast.TypeSpec:
-			if t.Name.Name == queryName {
-				chunk, err := getFileChunk(fileName, n.Pos(), n.End())
-				if err != nil {
-					// TODO err slice
-					return true
-				}
-
-				queryTypeStr = "type " + chunk + "\n"
-			}
-		}
-		return true
-	})
-
-	return queryName, queryTypeStr, nil
+	return renderTypeTmpl(fts, queryName), nil
 }
 
-func getFileChunk(filename string, pos, end token.Pos) (string, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return "", fmt.Errorf("opening %q: %w", filename, err)
-	}
-	defer file.Close()
-
-	_, err = file.Seek(int64(pos-1), 0)
-	if err != nil {
-		return "", fmt.Errorf("seeking to %d in %q: %w", pos-1, filename, err)
+func renderTypeTmpl(fts []FieldType, typeName string) string {
+	type typeTmplField struct {
+		Name string
+		Type string
+		Tag  string
 	}
 
-	data := make([]byte, end-pos)
-	_, err = io.ReadFull(file, data)
-	return string(data), err
+	type typeTmplArgs struct {
+		TypeName string
+		Fields   []typeTmplField
+	}
+
+	var fields []typeTmplField
+	for _, ft := range fts {
+		fields = append(fields, typeTmplField{
+			Name: goInits(snakeCaseToPascalCase(ft.Field)),
+			Type: goTypeFromSqlType(ft.Type),
+			Tag:  ft.Field,
+		})
+	}
+
+	args := typeTmplArgs{
+		TypeName: typeName,
+		Fields:   fields,
+	}
+
+	var buf bytes.Buffer
+	typeTmpl.Execute(&buf, args)
+	return buf.String()
+}
+
+func goTypeFromSqlType(t string) string {
+	switch t {
+	case "uuid":
+		return "uuid.UUID"
+	case "text":
+		return "string"
+	case "timestamptz":
+		return "time.Time"
+	case "int4":
+		return "int"
+	case "jsonb":
+		return "[]byte"
+	case "numeric":
+		return "float64"
+	default:
+		return snakeCaseToPascalCase(t)
+	}
+}
+
+func goInits(x string) string {
+	return strings.ReplaceAll(x, "Id", "ID")
 }
 
 func nameQuery(query string) string {
