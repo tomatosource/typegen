@@ -1,8 +1,11 @@
 package main
 
+import "os"
+
 func main() {
 	r := &runner{}
-	if err := r.init(); err != nil {
+	// TODO runtime arg
+	if err := r.init(os.Getenv("DB_CONN")); err != nil {
 		panic(err)
 	}
 

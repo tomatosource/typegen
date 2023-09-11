@@ -6,7 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/ioutil"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -24,9 +24,8 @@ type runner struct {
 	typegenFuncNames map[string]bool
 }
 
-func (r *runner) init() error {
-	// TODO arg
-	r.dbConnAddr = "postgres://postgres:safesafe@127.0.0.1:6000/svc_core_dev?sslmode=disable"
+func (r *runner) init(dbConn string) error {
+	r.dbConnAddr = dbConn
 
 	conn, err := pgx.Connect(context.Background(), r.dbConnAddr)
 	if err != nil {
@@ -156,7 +155,7 @@ func (r *runner) processPackage(
 		errs <- fmt.Errorf("formatting pkg %q output file: %w", pkgName, err)
 	}
 
-	if err := ioutil.WriteFile(
+	if err := os.WriteFile(
 		outputPath, formattedPkgFile, 0o644,
 	); err != nil {
 		errs <- fmt.Errorf("writing output file %q: %w", outputPath, err)
