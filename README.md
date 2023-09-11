@@ -9,7 +9,7 @@
 ## prereqs
 
 ```
-go install github.com/xo/xo@latest
+brew install pgformatter
 ```
 
 ## installation
