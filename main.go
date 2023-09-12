@@ -400,6 +400,7 @@ func (r *runner) genQueryType(query string) (string, string, error) {
 		"--go-uuid=github.com/google/uuid",
 		"--schema=public",
 		"--go-field-tag=db:\"{{ .SQLName }}\"",
+		"--allow-nulls"
 		fmt.Sprintf("--type=%s", queryName),
 		fmt.Sprintf("--query=%s", q),
 	)
