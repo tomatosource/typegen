@@ -16,7 +16,7 @@ brew install pgformatter
 ## installation
 
 ```
-go install github.com/tomatosource/typegen
+go install github.com/tomatosource/typegen@latest
 ```
 
 ## running
